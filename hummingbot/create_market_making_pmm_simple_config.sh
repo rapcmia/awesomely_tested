@@ -30,26 +30,6 @@ prompt_default() {
   printf '%s' "$value"
 }
 
-prompt_bool() {
-  local label="$1"
-  local default="$2"
-  local value
-  while true; do
-    read -r -p "$label (true/false) [$default]: " value
-    value="$(trim "$value")"
-    [[ -z "$value" ]] && value="$default"
-    case "${value,,}" in
-      true|false)
-        printf '%s' "${value,,}"
-        return
-        ;;
-      *)
-        echo "Please enter true or false."
-        ;;
-    esac
-  done
-}
-
 prompt_int() {
   local label="$1"
   local default="$2"
@@ -95,44 +75,28 @@ next_default_controller_id() {
   local max_n=0
   local file base num
 
-  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_test*.yml; do
+  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_pmmsimple*.yml; do
     [[ -e "$file" ]] || continue
     base="$(basename "$file" .yml)"
-    if [[ "$base" =~ ^${date_prefix}_test([0-9]+)$ ]]; then
+    if [[ "$base" =~ ^${date_prefix}_pmmsimple([0-9]+)$ ]]; then
       num="${BASH_REMATCH[1]}"
       num=$((10#$num))
       (( num > max_n )) && max_n=$num
     fi
   done
 
-  printf '%s_test%02d' "$date_prefix" $((max_n + 1))
-}
-
-next_script_config_filename() {
-  local max_n=0
-  local file base num
-
-  for file in "${SCRIPT_CONFIG_DIR}"/conf_market_making.pmm_simple_test*.yml; do
-    [[ -e "$file" ]] || continue
-    base="$(basename "$file" .yml)"
-    if [[ "$base" =~ ^conf_market_making\.pmm_simple_test([0-9]+)$ ]]; then
-      num="${BASH_REMATCH[1]}"
-      num=$((10#$num))
-      (( num > max_n )) && max_n=$num
-    fi
-  done
-
-  printf 'conf_market_making.pmm_simple_test%02d.yml' $((max_n + 1))
+  printf '%s_pmmsimple%02d' "$date_prefix" $((max_n + 1))
 }
 
 script_config_filename_for_controller() {
   local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
   local suffix="${controller_id#*_}"
 
-  if [[ "$suffix" =~ ^test[0-9]+$ ]]; then
-    printf 'conf_market_making.pmm_simple_%s.yml' "$suffix"
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_market_making_pmm_simple_%s.yml' "$controller_id"
   else
-    next_script_config_filename
+    printf '%s_conf_market_making_pmm_simple_%s.yml' "$date_prefix" "$suffix"
   fi
 }
 
@@ -192,21 +156,21 @@ if [[ -f "$controller_path" ]]; then
   fi
 fi
 
-total_amount_quote="$(prompt_default "total_amount_quote" "100")"
-manual_kill_switch="$(prompt_bool "manual_kill_switch" "false")"
-connector_name="$(prompt_default "connector_name" "binance_perpetual")"
-trading_pair="$(prompt_default "trading_pair" "WLD-USDT")"
-buy_spreads_csv="$(prompt_default "buy_spreads (comma list)" "0.01,0.02")"
-sell_spreads_csv="$(prompt_default "sell_spreads (comma list)" "0.01,0.02")"
-buy_amounts_pct_csv="$(prompt_default "buy_amounts_pct (comma list)" "1,1")"
-sell_amounts_pct_csv="$(prompt_default "sell_amounts_pct (comma list)" "1,1")"
-executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "300")"
-cooldown_time="$(prompt_int "cooldown_time (seconds)" "15")"
-leverage="$(prompt_int "leverage" "20")"
+total_amount_quote="100"
+manual_kill_switch="false"
+connector_name="$(prompt_default "connector_name" "binance")"
+trading_pair="$(prompt_default "trading_pair" "BTC-FDUSD")"
+buy_spreads_csv="0.003"
+sell_spreads_csv="0.003"
+buy_amounts_pct_csv="1"
+sell_amounts_pct_csv="1"
+executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "60")"
+cooldown_time="10"
+leverage="10"
 position_mode="$(prompt_position_mode)"
-stop_loss="$(prompt_default "stop_loss" "0.03")"
-take_profit="$(prompt_default "take_profit" "0.02")"
-time_limit="$(prompt_int "time_limit (seconds)" "2700")"
+stop_loss="0.05"
+take_profit="0.0002"
+time_limit="300"
 take_profit_order_type="$(prompt_int "take_profit_order_type (1=MARKET,2=LIMIT,3=LIMIT_MAKER)" "2")"
 
 buy_spreads_yaml="$(csv_to_yaml_float_list "$buy_spreads_csv")"
@@ -220,7 +184,6 @@ controller_name: pmm_simple
 controller_type: market_making
 total_amount_quote: '${total_amount_quote}'
 manual_kill_switch: ${manual_kill_switch}
-candles_config: []
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
@@ -249,8 +212,6 @@ script_config_filename="$(script_config_filename_for_controller "$config_id")"
 script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
 
 cat > "$script_config_path" <<YAML
-markets: {}
-candles_config: []
 controllers_config:
 - ${controller_filename}
 script_file_name: v2_with_controllers.py
@@ -261,3 +222,4 @@ YAML
 echo
 echo "Config created: $controller_path"
 echo "Script config created: $script_config_path"
+echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
