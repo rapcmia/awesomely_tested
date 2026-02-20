@@ -14,7 +14,8 @@ set -euo pipefail
 # Currently supported templates:
 # - market_making.pmm_simple
 # - generic.grid_strike
-# More templates can be added in future updates.
+# - market_making.pmm_dynamic
+# - directional.bollinger_v1
 #
 # Recommended runtime window:
 # - This setup is tuned for short monitoring runs (~15 to 30 minutes).
@@ -26,11 +27,10 @@ set -euo pipefail
 # - Allocate capital in base or quote depending on selected side:
 #   - BUY side: quote allocation
 #   - SELL side: base allocation
-# - min_order_amount_quote defaults:
-#   - 7  -> approximately 13 grids
-#   - 12 -> approximately 2 grids
+# - min_order_amount_quote range:
+#   - 3 to 12 (USD)
 # - Range and entry defaults:
-#   - range_distance = 1%
+#   - range_distance = 2%
 #   - limit_price offset = 0.5%
 # - Best suited for CEX testing.
 # - For DEX CLOB, tune these based on market conditions:
@@ -118,31 +118,75 @@ next_default_controller_id() {
   printf '%s_pmmsimple%02d' "$date_prefix" $((max_n + 1))
 }
 
-pmm_next_script_config_filename() {
+pmm_script_config_filename_for_controller() {
+  local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
+  local suffix="${controller_id#*_}"
+
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_market_making_pmm_simple_%s.yml' "$controller_id"
+  else
+    printf '%s_conf_market_making_pmm_simple_%s.yml' "$date_prefix" "$suffix"
+  fi
+}
+
+next_default_pmmdynamic_id() {
+  local date_prefix="$1"
   local max_n=0
   local file base num
 
-  for file in "${SCRIPT_CONFIG_DIR}"/conf_market_making_pmm_simple_pmmsimple*.yml; do
+  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_pmmdynamic*.yml; do
     [[ -e "$file" ]] || continue
     base="$(basename "$file" .yml)"
-    if [[ "$base" =~ ^conf_market_making_pmm_simple_pmmsimple([0-9]+)$ ]]; then
+    if [[ "$base" =~ ^${date_prefix}_pmmdynamic([0-9]+)$ ]]; then
       num="${BASH_REMATCH[1]}"
       num=$((10#$num))
       (( num > max_n )) && max_n=$num
     fi
   done
 
-  printf 'conf_market_making_pmm_simple_pmmsimple%02d.yml' $((max_n + 1))
+  printf '%s_pmmdynamic%02d' "$date_prefix" $((max_n + 1))
 }
 
-pmm_script_config_filename_for_controller() {
+pmm_dynamic_script_config_filename_for_controller() {
   local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
   local suffix="${controller_id#*_}"
 
-  if [[ "$suffix" =~ ^pmmsimple[0-9]+$ ]]; then
-    printf 'conf_market_making_pmm_simple_%s.yml' "$suffix"
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_market_making_pmm_dynamic_%s.yml' "$controller_id"
   else
-    pmm_next_script_config_filename
+    printf '%s_conf_market_making_pmm_dynamic_%s.yml' "$date_prefix" "$suffix"
+  fi
+}
+
+next_default_bollingerv1_id() {
+  local date_prefix="$1"
+  local max_n=0
+  local file base num
+
+  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_bollingerv1_*.yml; do
+    [[ -e "$file" ]] || continue
+    base="$(basename "$file" .yml)"
+    if [[ "$base" =~ ^${date_prefix}_bollingerv1_([0-9]+)$ ]]; then
+      num="${BASH_REMATCH[1]}"
+      num=$((10#$num))
+      (( num > max_n )) && max_n=$num
+    fi
+  done
+
+  printf '%s_bollingerv1_%02d' "$date_prefix" $((max_n + 1))
+}
+
+bollinger_v1_script_config_filename_for_controller() {
+  local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
+  local suffix="${controller_id#*_}"
+
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_directional_bollinger_v1_%s.yml' "$controller_id"
+  else
+    printf '%s_conf_directional_bollinger_v1_%s.yml' "$date_prefix" "$suffix"
   fi
 }
 
@@ -269,6 +313,238 @@ YAML
   echo
   echo "Config created: $controller_path"
   echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
+}
+
+create_pmm_dynamic_config() {
+  if [[ ! -d "$CONTROLLER_CONFIG_DIR" ]]; then
+    echo "Output directory '$CONTROLLER_CONFIG_DIR' not found."
+    exit 1
+  fi
+  mkdir -p "$SCRIPT_CONFIG_DIR"
+
+  echo "Create market_making.pmm_dynamic controller config"
+  echo "-------------------------------------------------"
+  echo "Note: Press Enter to accept the default value shown in [brackets]."
+  echo
+
+  date_prefix="$(date +%d%m%Y)"
+  read -r -p "Enter config name suffix (blank for auto): " user_suffix
+  user_suffix="$(trim "${user_suffix:-}")"
+
+  if [[ -z "$user_suffix" ]]; then
+    config_id="$(next_default_pmmdynamic_id "$date_prefix")"
+  else
+    user_suffix="$(sanitize_suffix "$user_suffix")"
+    if [[ -z "$user_suffix" ]]; then
+      echo "Invalid suffix. Use letters, numbers, _ or -."
+      exit 1
+    fi
+    config_id="${date_prefix}_${user_suffix}"
+  fi
+
+  controller_filename="${config_id}.yml"
+  controller_path="${CONTROLLER_CONFIG_DIR}/${controller_filename}"
+
+  if [[ -f "$controller_path" ]]; then
+    read -r -p "File already exists: $controller_path. Overwrite? (y/N): " overwrite
+    overwrite="$(trim "$overwrite")"
+    if [[ "${overwrite,,}" != "y" && "${overwrite,,}" != "yes" ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  total_amount_quote="100"
+  manual_kill_switch="false"
+  connector_name="$(prompt_default "connector_name" "binance")"
+  trading_pair="$(prompt_default "trading_pair" "BTC-FDUSD")"
+  candles_connector="${connector_name}"
+  candles_trading_pair="${trading_pair}"
+  echo "candles_data: ${candles_connector}, ${candles_trading_pair}"
+  buy_spreads_csv="0.003"
+  sell_spreads_csv="0.003"
+  buy_amounts_pct_csv="1"
+  sell_amounts_pct_csv="1"
+  executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "60")"
+  cooldown_time="10"
+  leverage="10"
+  position_mode="HEDGE"
+  stop_loss="0.01"
+  take_profit="0.0002"
+  time_limit="300"
+  take_profit_order_type="2"
+  trailing_stop="null"
+  position_rebalance_threshold_pct="0.05"
+  skip_rebalance="true"
+  interval="3m"
+  macd_fast="$(prompt_int "macd_fast" "21")"
+  macd_slow="$(prompt_int "macd_slow" "42")"
+  macd_signal="$(prompt_int "macd_signal" "9")"
+  natr_length="$(prompt_int "natr_length" "14")"
+
+  buy_spreads_yaml="$(csv_to_yaml_float_list "$buy_spreads_csv")"
+  sell_spreads_yaml="$(csv_to_yaml_float_list "$sell_spreads_csv")"
+  buy_amounts_yaml="$(csv_to_yaml_decimal_str_list "$buy_amounts_pct_csv")"
+  sell_amounts_yaml="$(csv_to_yaml_decimal_str_list "$sell_amounts_pct_csv")"
+
+  cat > "$controller_path" <<YAML
+id: ${config_id}
+controller_name: pmm_dynamic
+controller_type: market_making
+total_amount_quote: '${total_amount_quote}'
+manual_kill_switch: ${manual_kill_switch}
+initial_positions: []
+connector_name: ${connector_name}
+trading_pair: ${trading_pair}
+buy_spreads:
+${buy_spreads_yaml}
+sell_spreads:
+${sell_spreads_yaml}
+buy_amounts_pct:
+${buy_amounts_yaml}
+sell_amounts_pct:
+${sell_amounts_yaml}
+executor_refresh_time: ${executor_refresh_time}
+cooldown_time: ${cooldown_time}
+leverage: ${leverage}
+position_mode: ${position_mode}
+stop_loss: '${stop_loss}'
+take_profit: '${take_profit}'
+time_limit: ${time_limit}
+take_profit_order_type: ${take_profit_order_type}
+trailing_stop: ${trailing_stop}
+position_rebalance_threshold_pct: '${position_rebalance_threshold_pct}'
+skip_rebalance: ${skip_rebalance}
+candles_connector: ${candles_connector}
+candles_trading_pair: ${candles_trading_pair}
+interval: ${interval}
+macd_fast: ${macd_fast}
+macd_slow: ${macd_slow}
+macd_signal: ${macd_signal}
+natr_length: ${natr_length}
+YAML
+
+  script_config_filename="$(pmm_dynamic_script_config_filename_for_controller "$config_id")"
+  script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
+
+  cat > "$script_config_path" <<YAML
+controllers_config:
+- ${controller_filename}
+script_file_name: v2_with_controllers.py
+max_global_drawdown_quote: null
+max_controller_drawdown_quote: null
+YAML
+
+  echo
+  echo "Config created: $controller_path"
+  echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
+}
+
+create_bollinger_v1_config() {
+  if [[ ! -d "$CONTROLLER_CONFIG_DIR" ]]; then
+    echo "Output directory '$CONTROLLER_CONFIG_DIR' not found."
+    exit 1
+  fi
+  mkdir -p "$SCRIPT_CONFIG_DIR"
+
+  echo "Create directional.bollinger_v1 controller config"
+  echo "------------------------------------------------"
+  echo "Note: Press Enter to accept the default value shown in [brackets]."
+  echo
+
+  date_prefix="$(date +%d%m%Y)"
+  read -r -p "Enter config name suffix (blank for auto): " user_suffix
+  user_suffix="$(trim "${user_suffix:-}")"
+
+  if [[ -z "$user_suffix" ]]; then
+    config_id="$(next_default_bollingerv1_id "$date_prefix")"
+  else
+    user_suffix="$(sanitize_suffix "$user_suffix")"
+    if [[ -z "$user_suffix" ]]; then
+      echo "Invalid suffix. Use letters, numbers, _ or -."
+      exit 1
+    fi
+    config_id="${date_prefix}_${user_suffix}"
+  fi
+
+  controller_filename="${config_id}.yml"
+  controller_path="${CONTROLLER_CONFIG_DIR}/${controller_filename}"
+
+  if [[ -f "$controller_path" ]]; then
+    read -r -p "File already exists: $controller_path. Overwrite? (y/N): " overwrite
+    overwrite="$(trim "$overwrite")"
+    if [[ "${overwrite,,}" != "y" && "${overwrite,,}" != "yes" ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  total_amount_quote="$(prompt_default "total_amount_quote" "30")"
+  manual_kill_switch="false"
+  connector_name="$(prompt_default "connector_name" "binance_perpetual")"
+  trading_pair="$(prompt_default "trading_pair" "SOL-USDT")"
+  candles_connector="${connector_name}"
+  candles_trading_pair="${trading_pair}"
+  echo "candles_data: ${candles_connector}, ${candles_trading_pair}"
+  max_executors_per_side="2"
+  cooldown_time="$(prompt_int "cooldown_time (seconds)" "30")"
+  leverage="10"
+  position_mode="HEDGE"
+  stop_loss="0.01"
+  take_profit="$(prompt_default "take_profit" "0.0003")"
+  time_limit="300"
+  take_profit_order_type="1"
+  trailing_stop="null"
+  interval="3m"
+  bb_length="200"
+  bb_std="2.0"
+  bb_long_threshold="$(prompt_default "bb_long_threshold" "0.3")"
+  bb_short_threshold="$(prompt_default "bb_short_threshold" "0.7")"
+
+  cat > "$controller_path" <<YAML
+id: ${config_id}
+controller_name: bollinger_v1
+controller_type: directional_trading
+total_amount_quote: '${total_amount_quote}'
+manual_kill_switch: ${manual_kill_switch}
+initial_positions: []
+connector_name: ${connector_name}
+trading_pair: ${trading_pair}
+max_executors_per_side: ${max_executors_per_side}
+cooldown_time: ${cooldown_time}
+leverage: ${leverage}
+position_mode: ${position_mode}
+stop_loss: '${stop_loss}'
+take_profit: '${take_profit}'
+time_limit: ${time_limit}
+take_profit_order_type: ${take_profit_order_type}
+trailing_stop: ${trailing_stop}
+candles_connector: ${candles_connector}
+candles_trading_pair: ${candles_trading_pair}
+interval: ${interval}
+bb_length: ${bb_length}
+bb_std: ${bb_std}
+bb_long_threshold: ${bb_long_threshold}
+bb_short_threshold: ${bb_short_threshold}
+YAML
+
+  script_config_filename="$(bollinger_v1_script_config_filename_for_controller "$config_id")"
+  script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
+
+  cat > "$script_config_path" <<YAML
+controllers_config:
+- ${controller_filename}
+script_file_name: v2_with_controllers.py
+max_global_drawdown_quote: null
+max_controller_drawdown_quote: null
+YAML
+
+  echo
+  echo "Config created: $controller_path"
+  echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
 }
 
 prompt_int_choice() {
@@ -289,18 +565,20 @@ prompt_int_choice() {
 
 prompt_min_order_amount_quote() {
   local value
-  read -r -p "min_order_amount_quote (7 or 12) [12]: " value
+  read -r -p "min_order_amount_quote (3 to 12 USD) [12]: " value
   value="$(trim "$value")"
   [[ -z "$value" ]] && value="12"
-  case "$value" in
-    7|12)
-      printf '%s' "$value"
-      ;;
-    *)
-      echo "Invalid min_order_amount_quote. Only 7 or 12 are allowed. Exiting." >&2
-      exit 1
-      ;;
-  esac
+  if [[ ! "$value" =~ ^([0-9]+([.][0-9]+)?)$ ]]; then
+    echo >&2
+    echo "Error: min_order_amount_quote must be a numeric value in USD." >&2
+    exit 1
+  fi
+  if ! awk -v n="$value" 'BEGIN { exit !(n >= 3 && n <= 12) }'; then
+    echo >&2
+    echo "Error: order amount must be within the range of 3 to 12 USD (you entered: $value)." >&2
+    exit 1
+  fi
+  printf '%s' "$value"
 }
 
 normalize_decimal() {
@@ -352,33 +630,15 @@ next_default_gridstrike_id() {
   printf '%s_gridstrike%02d' "$date_prefix" $((max_n + 1))
 }
 
-gridstrike_next_script_config_filename() {
-  local max_n=0
-  local file base num
-
-  for file in "${SCRIPT_CONFIG_DIR}"/conf_generic_grid_strike_gridstrike*.yml; do
-    [[ -e "$file" ]] || continue
-    base="$(basename "$file" .yml)"
-    if [[ "$base" =~ ^conf_generic_grid_strike_gridstrike([0-9]+)$ ]]; then
-      num="${BASH_REMATCH[1]}"
-      num=$((10#$num))
-      if (( num > max_n )); then
-        max_n=$num
-      fi
-    fi
-  done
-
-  printf 'conf_generic_grid_strike_gridstrike%02d.yml' $((max_n + 1))
-}
-
 gridstrike_script_config_filename_for_controller() {
   local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
   local suffix="${controller_id#*_}"
 
-  if [[ "$suffix" =~ ^gridstrike[0-9]+$ ]]; then
-    printf 'conf_generic_grid_strike_%s.yml' "$suffix"
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_generic_%s.yml' "$controller_id"
   else
-    gridstrike_next_script_config_filename
+    printf '%s_conf_generic_%s.yml' "$date_prefix" "$suffix"
   fi
 }
 
@@ -429,7 +689,7 @@ create_grid_strike_config() {
   trading_pair="$(prompt_default "trading_pair" "BTC-FDUSD")"
 
   side="$(prompt_int_choice "side (1=BUY, 2=SELL)" "1")"
-  range_distance="0.01"
+  range_distance="0.02"
   start_price="$(prompt_default "start_price" "1.4")"
   end_price="$(calc_end_price "$start_price" "$range_distance")"
   end_price="$(normalize_decimal "$end_price")"
@@ -441,7 +701,7 @@ create_grid_strike_config() {
   min_spread_between_orders="0.0003"
   min_order_amount_quote="$(prompt_min_order_amount_quote)"
 
-  max_open_orders="2"
+  max_open_orders="4"
   max_orders_per_batch="1"
   order_frequency="$(prompt_int_choice "order_frequency (seconds)" "5")"
   activation_bounds="0.003"
@@ -497,12 +757,15 @@ YAML
   echo
   echo "Config created: $output_path"
   echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
 }
 
 echo "Select controller to create:"
 echo
 echo "1. market_making.pmm"
 echo "2. generic.grid_strike"
+echo "3. market_making.pmm_dynamic"
+echo "4. directional.bollinger_v1"
 echo
 read -r -p "Enter your choice: " choice
 
@@ -514,6 +777,14 @@ case "$choice" in
   2)
     echo
     create_grid_strike_config
+    ;;
+  3)
+    echo
+    create_pmm_dynamic_config
+    ;;
+  4)
+    echo
+    create_bollinger_v1_config
     ;;
   *)
     echo "Invalid choice. Exiting." >&2
