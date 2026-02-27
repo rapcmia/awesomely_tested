@@ -182,30 +182,30 @@ cat > "$controller_path" <<YAML
 id: ${config_id}
 controller_name: pmm_simple
 controller_type: market_making
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-buy_spreads:
+buy_spreads: # Buy distance from mid-price (e.g., 0.003 = 0.3% below).
 ${buy_spreads_yaml}
-sell_spreads:
+sell_spreads: # Sell distance from mid-price (e.g., 0.003 = 0.3% above).
 ${sell_spreads_yaml}
-buy_amounts_pct:
+buy_amounts_pct: # Relative size split per buy level.
 ${buy_amounts_yaml}
-sell_amounts_pct:
+sell_amounts_pct: # Relative size split per sell level.
 ${sell_amounts_yaml}
 executor_refresh_time: ${executor_refresh_time}
-cooldown_time: ${cooldown_time}
-leverage: ${leverage}
+cooldown_time: ${cooldown_time} # Wait time before placing another order.
+leverage: ${leverage} # Leverage used for this strategy.
 position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
-take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: null
-position_rebalance_threshold_pct: '0.05'
-skip_rebalance: true
+stop_loss: '${stop_loss}' # Stop-loss per position.
+take_profit: '${take_profit}' # Take-profit per position.
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: null # Trailing stop disabled in this template.
+position_rebalance_threshold_pct: '0.05' # Rebalance trigger threshold (5%).
+skip_rebalance: true # Skip automatic rebalance on startup.
 YAML
 
 script_config_filename="$(script_config_filename_for_controller "$config_id")"
