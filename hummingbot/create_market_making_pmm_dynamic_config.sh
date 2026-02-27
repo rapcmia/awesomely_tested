@@ -177,33 +177,33 @@ cat > "$controller_path" <<YAML
 id: ${config_id}
 controller_name: pmm_dynamic
 controller_type: market_making
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-buy_spreads:
+buy_spreads: # Buy distance from mid-price.
 ${buy_spreads_yaml}
-sell_spreads:
+sell_spreads: # Sell distance from mid-price.
 ${sell_spreads_yaml}
-buy_amounts_pct:
+buy_amounts_pct: # Relative size split per buy level.
 ${buy_amounts_yaml}
-sell_amounts_pct:
+sell_amounts_pct: # Relative size split per sell level.
 ${sell_amounts_yaml}
 executor_refresh_time: ${executor_refresh_time}
-cooldown_time: ${cooldown_time}
-leverage: ${leverage}
-position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
-take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: ${trailing_stop}
-position_rebalance_threshold_pct: '${position_rebalance_threshold_pct}'
-skip_rebalance: ${skip_rebalance}
-candles_connector: ${candles_connector}
-candles_trading_pair: ${candles_trading_pair}
-interval: ${interval}
+cooldown_time: ${cooldown_time} # Wait time before placing another order.
+leverage: ${leverage} # Leverage used for this strategy.
+position_mode: ${position_mode} # Position mode fixed by this template.
+stop_loss: '${stop_loss}' # Stop-loss per position.
+take_profit: '${take_profit}' # Take-profit per position.
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: ${trailing_stop} # Trailing stop disabled in this template.
+position_rebalance_threshold_pct: '${position_rebalance_threshold_pct}' # Rebalance trigger threshold.
+skip_rebalance: ${skip_rebalance} # Skip automatic rebalance on startup.
+candles_connector: ${candles_connector} # Candle source connector (matches trade connector).
+candles_trading_pair: ${candles_trading_pair} # Candle source pair (matches trading pair).
+interval: ${interval} # Candle timeframe for indicator calculations.
 macd_fast: ${macd_fast}
 macd_slow: ${macd_slow}
 macd_signal: ${macd_signal}
@@ -225,3 +225,4 @@ echo
 echo "Config created: $controller_path"
 echo "Script config created: $script_config_path"
 echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
+
