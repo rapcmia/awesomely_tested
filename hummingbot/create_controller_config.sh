@@ -16,6 +16,8 @@ set -euo pipefail
 # - generic.grid_strike
 # - market_making.pmm_dynamic
 # - directional.bollinger_v1
+# - generic.pmm_mister
+# - generic.pmm_v1
 #
 # Recommended runtime window:
 # - This setup is tuned for short monitoring runs (~15 to 30 minutes).
@@ -76,10 +78,30 @@ prompt_int() {
   done
 }
 
-prompt_position_mode() {
+prompt_bool() {
+  local label="$1"
+  local default="$2"
   local value
   while true; do
-    value="$(prompt_default "position_mode (HEDGE/ONEWAY)" "HEDGE")"
+    value="$(prompt_default "$label (true/false)" "$default")"
+    value="${value,,}"
+    case "$value" in
+      true|false)
+        printf '%s' "$value"
+        return
+        ;;
+      *)
+        echo "Please enter true or false."
+        ;;
+    esac
+  done
+}
+
+prompt_position_mode() {
+  local value
+  local default="${1:-HEDGE}"
+  while true; do
+    value="$(prompt_default "position_mode (HEDGE/ONEWAY)" "$default")"
     value="${value^^}"
     case "$value" in
       HEDGE|ONEWAY)
@@ -190,6 +212,71 @@ bollinger_v1_script_config_filename_for_controller() {
   fi
 }
 
+next_default_pmmmister_id() {
+  local date_prefix="$1"
+  local max_n=0
+  local file base num
+
+  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_pmmmister*.yml; do
+    [[ -e "$file" ]] || continue
+    base="$(basename "$file" .yml)"
+    if [[ "$base" =~ ^${date_prefix}_pmmmister([0-9]+)$ ]]; then
+      num="${BASH_REMATCH[1]}"
+      num=$((10#$num))
+      (( num > max_n )) && max_n=$num
+    fi
+  done
+
+  printf '%s_pmmmister%02d' "$date_prefix" $((max_n + 1))
+}
+
+pmm_mister_script_config_filename_for_controller() {
+  local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
+  local suffix="${controller_id#*_}"
+
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_generic_pmm_mister_%s.yml' "$controller_id"
+  else
+    printf '%s_conf_generic_pmm_mister_%s.yml' "$date_prefix" "$suffix"
+  fi
+}
+
+next_default_pmmv1_id() {
+  local date_prefix="$1"
+  local max_n=0
+  local file base num
+
+  for file in "${CONTROLLER_CONFIG_DIR}/${date_prefix}"_pmmv1*.yml; do
+    [[ -e "$file" ]] || continue
+    base="$(basename "$file" .yml)"
+    if [[ "$base" =~ ^${date_prefix}_pmmv1_([0-9]+)$ ]]; then
+      num="${BASH_REMATCH[1]}"
+      num=$((10#$num))
+      (( num > max_n )) && max_n=$num
+    elif [[ "$base" =~ ^${date_prefix}_pmmv1([0-9]+)$ ]]; then
+      # Backward compatibility with older naming without underscore.
+      num="${BASH_REMATCH[1]}"
+      num=$((10#$num))
+      (( num > max_n )) && max_n=$num
+    fi
+  done
+
+  printf '%s_pmmv1_%02d' "$date_prefix" $((max_n + 1))
+}
+
+pmm_v1_script_config_filename_for_controller() {
+  local controller_id="$1"
+  local date_prefix="${controller_id%%_*}"
+  local suffix="${controller_id#*_}"
+
+  if [[ "$controller_id" == "$suffix" ]]; then
+    printf 'conf_generic_pmm_v1_%s.yml' "$controller_id"
+  else
+    printf '%s_conf_generic_pmm_v1_%s.yml' "$date_prefix" "$suffix"
+  fi
+}
+
 csv_to_yaml_float_list() {
   local csv="$1"
   IFS=',' read -r -a arr <<< "$csv"
@@ -273,30 +360,30 @@ create_pmm_simple_config() {
 id: ${config_id}
 controller_name: pmm_simple
 controller_type: market_making
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-buy_spreads:
+buy_spreads: # Buy distance from mid-price (e.g., 0.003 = 0.3% below).
 ${buy_spreads_yaml}
-sell_spreads:
+sell_spreads: # Sell distance from mid-price (e.g., 0.003 = 0.3% above).
 ${sell_spreads_yaml}
-buy_amounts_pct:
+buy_amounts_pct: # Relative size split per buy level.
 ${buy_amounts_yaml}
-sell_amounts_pct:
+sell_amounts_pct: # Relative size split per sell level.
 ${sell_amounts_yaml}
 executor_refresh_time: ${executor_refresh_time}
-cooldown_time: ${cooldown_time}
-leverage: ${leverage}
+cooldown_time: ${cooldown_time} # Wait time before placing another order.
+leverage: ${leverage} # Leverage used for this strategy.
 position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
-take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: null
-position_rebalance_threshold_pct: '0.05'
-skip_rebalance: true
+stop_loss: '${stop_loss}' # Stop-loss per position.
+take_profit: '${take_profit}' # Take-profit per position.
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: null # Trailing stop disabled in this template.
+position_rebalance_threshold_pct: '0.05' # Rebalance trigger threshold (5%).
+skip_rebalance: true # Skip automatic rebalance on startup.
 YAML
 
   script_config_filename="$(pmm_script_config_filename_for_controller "$config_id")"
@@ -392,33 +479,33 @@ create_pmm_dynamic_config() {
 id: ${config_id}
 controller_name: pmm_dynamic
 controller_type: market_making
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-buy_spreads:
+buy_spreads: # Buy distance from mid-price.
 ${buy_spreads_yaml}
-sell_spreads:
+sell_spreads: # Sell distance from mid-price.
 ${sell_spreads_yaml}
-buy_amounts_pct:
+buy_amounts_pct: # Relative size split per buy level.
 ${buy_amounts_yaml}
-sell_amounts_pct:
+sell_amounts_pct: # Relative size split per sell level.
 ${sell_amounts_yaml}
 executor_refresh_time: ${executor_refresh_time}
-cooldown_time: ${cooldown_time}
-leverage: ${leverage}
-position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
-take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: ${trailing_stop}
-position_rebalance_threshold_pct: '${position_rebalance_threshold_pct}'
-skip_rebalance: ${skip_rebalance}
-candles_connector: ${candles_connector}
-candles_trading_pair: ${candles_trading_pair}
-interval: ${interval}
+cooldown_time: ${cooldown_time} # Wait time before placing another order.
+leverage: ${leverage} # Leverage used for this strategy.
+position_mode: ${position_mode} # Position mode fixed by this template.
+stop_loss: '${stop_loss}' # Stop-loss per position.
+take_profit: '${take_profit}' # Take-profit per position.
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: ${trailing_stop} # Trailing stop disabled in this template.
+position_rebalance_threshold_pct: '${position_rebalance_threshold_pct}' # Rebalance trigger threshold.
+skip_rebalance: ${skip_rebalance} # Skip automatic rebalance on startup.
+candles_connector: ${candles_connector} # Candle source connector (matches trade connector).
+candles_trading_pair: ${candles_trading_pair} # Candle source pair (matches trading pair).
+interval: ${interval} # Candle timeframe for indicator calculations.
 macd_fast: ${macd_fast}
 macd_slow: ${macd_slow}
 macd_signal: ${macd_signal}
@@ -508,29 +595,268 @@ id: ${config_id}
 controller_name: bollinger_v1
 controller_type: directional_trading
 total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-max_executors_per_side: ${max_executors_per_side}
+max_executors_per_side: ${max_executors_per_side} # Max simultaneous positions per direction.
 cooldown_time: ${cooldown_time}
-leverage: ${leverage}
-position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
+leverage: ${leverage} # Leverage used for this strategy.
+position_mode: ${position_mode} # Position mode fixed by this template.
+stop_loss: '${stop_loss}' # Stop-loss per position.
 take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: ${trailing_stop}
-candles_connector: ${candles_connector}
-candles_trading_pair: ${candles_trading_pair}
-interval: ${interval}
-bb_length: ${bb_length}
-bb_std: ${bb_std}
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: ${trailing_stop} # Trailing stop disabled in this template.
+candles_connector: ${candles_connector} # Candle source connector (matches trade connector).
+candles_trading_pair: ${candles_trading_pair} # Candle source pair (matches trading pair).
+interval: ${interval} # Candle timeframe used by Bollinger Bands.
+bb_length: ${bb_length} # Number of candles used in Bollinger calculation.
+bb_std: ${bb_std} # Band width multiplier (higher = wider bands).
 bb_long_threshold: ${bb_long_threshold}
 bb_short_threshold: ${bb_short_threshold}
 YAML
 
   script_config_filename="$(bollinger_v1_script_config_filename_for_controller "$config_id")"
+  script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
+
+  cat > "$script_config_path" <<YAML
+controllers_config:
+- ${controller_filename}
+script_file_name: v2_with_controllers.py
+max_global_drawdown_quote: null
+max_controller_drawdown_quote: null
+YAML
+
+  echo
+  echo "Config created: $controller_path"
+  echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
+}
+
+create_pmm_mister_config() {
+  if [[ ! -d "$CONTROLLER_CONFIG_DIR" ]]; then
+    echo "Output directory '$CONTROLLER_CONFIG_DIR' not found."
+    exit 1
+  fi
+  mkdir -p "$SCRIPT_CONFIG_DIR"
+
+  echo "Create generic.pmm_mister controller config"
+  echo "------------------------------------------"
+  echo "Note:"
+  echo "- Press Enter to accept the default value shown in [brackets]."
+  echo "- Keep BASE/QUOTE inventory balanced (quote-equivalent)."
+  echo "- With defaults (total_amount_quote=50, target_base_pct=0.5): BASE 25 / QUOTE 25."
+  echo
+
+  date_prefix="$(date +%d%m%Y)"
+  read -r -p "Enter config name suffix (blank for auto): " user_suffix
+  user_suffix="$(trim "${user_suffix:-}")"
+
+  if [[ -z "$user_suffix" ]]; then
+    config_id="$(next_default_pmmmister_id "$date_prefix")"
+  else
+    user_suffix="$(sanitize_suffix "$user_suffix")"
+    if [[ -z "$user_suffix" ]]; then
+      echo "Invalid suffix. Use letters, numbers, _ or -."
+      exit 1
+    fi
+    config_id="${date_prefix}_${user_suffix}"
+  fi
+
+  controller_filename="${config_id}.yml"
+  controller_path="${CONTROLLER_CONFIG_DIR}/${controller_filename}"
+
+  if [[ -f "$controller_path" ]]; then
+    read -r -p "File already exists: $controller_path. Overwrite? (y/N): " overwrite
+    overwrite="$(trim "$overwrite")"
+    if [[ "${overwrite,,}" != "y" && "${overwrite,,}" != "yes" ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  total_amount_quote="$(prompt_default "total_amount_quote" "50")"
+  connector_name="$(prompt_default "connector_name" "kucoin")"
+  trading_pair="$(prompt_default "trading_pair" "SOL-USDT")"
+  portfolio_allocation="0.5"
+  target_base_pct="0.5"
+  buy_spreads="$(prompt_default "buy_spreads" "0.0005")"
+  sell_spreads="$(prompt_default "sell_spreads" "0.0005")"
+  buy_amounts_pct="1"
+  sell_amounts_pct="1"
+  executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "60")"
+  position_mode="$(prompt_position_mode "ONEWAY")"
+  position_profit_protection="$(prompt_bool "position_profit_protection" "true")"
+
+  manual_kill_switch="false"
+  min_base_pct="0.3"
+  max_base_pct="0.6"
+  buy_position_effectivization_time="120"
+  sell_position_effectivization_time="120"
+  buy_cooldown_time="30"
+  sell_cooldown_time="30"
+  price_distance_tolerance="0.0005"
+  refresh_tolerance="0.0005"
+  tolerance_scaling="1.2"
+  leverage="10"
+  take_profit="0.0003"
+  take_profit_order_type="MARKET"
+  open_order_type="LIMIT"
+  max_active_executors_by_level="2"
+  tick_mode="false"
+  min_skew="1.0"
+  global_take_profit="0.01"
+  global_stop_loss="0.01"
+
+  cat > "$controller_path" <<YAML
+id: ${config_id}
+controller_name: pmm_mister
+controller_type: generic
+total_amount_quote: '${total_amount_quote}'
+manual_kill_switch: ${manual_kill_switch}
+initial_positions: []
+connector_name: ${connector_name}
+trading_pair: ${trading_pair}
+portfolio_allocation: '${portfolio_allocation}' # Fraction of total budget used for active orders.
+target_base_pct: '${target_base_pct}' # Target base allocation ratio (0.5 = 50% base, 50% quote).
+min_base_pct: '${min_base_pct}' # Lower bound of base allocation before strategy prioritizes buys.
+max_base_pct: '${max_base_pct}' # Upper bound of base allocation before strategy prioritizes sells.
+buy_spreads: '${buy_spreads}'
+sell_spreads: '${sell_spreads}'
+buy_amounts_pct: '${buy_amounts_pct}' # Buy size weight per level (1 = full single-level weight).
+sell_amounts_pct: '${sell_amounts_pct}' # Sell size weight per level (1 = full single-level weight).
+executor_refresh_time: ${executor_refresh_time}
+buy_cooldown_time: ${buy_cooldown_time} # Wait time before allowing a new buy order on the same side/level.
+sell_cooldown_time: ${sell_cooldown_time} # Wait time before allowing a new sell order on the same side/level.
+buy_position_effectivization_time: ${buy_position_effectivization_time} # Delay before retiring filled buy executor (keeps position).
+sell_position_effectivization_time: ${sell_position_effectivization_time} # Delay before retiring filled sell executor (keeps position).
+price_distance_tolerance: '${price_distance_tolerance}' # Minimum gap from current price to place another order.
+refresh_tolerance: '${refresh_tolerance}' # Max drift from target-entry before replacing a pending order.
+tolerance_scaling: '${tolerance_scaling}' # Multiplier to make deeper levels less strict.
+leverage: ${leverage} # Fixed leverage used by this config template.
+position_mode: ${position_mode}
+take_profit: '${take_profit}' # Per-position take profit target.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: MARKET, LIMIT, LIMIT_MAKER.
+open_order_type: ${open_order_type} # Entry order type. Options: MARKET, LIMIT, LIMIT_MAKER.
+max_active_executors_by_level: ${max_active_executors_by_level} # Safety cap for concurrent executors per level.
+tick_mode: ${tick_mode} # False = use spread percentages directly (not tick-size mode).
+position_profit_protection: ${position_profit_protection}
+min_skew: '${min_skew}' # Minimum order-size skew factor (prevents very tiny orders).
+global_take_profit: '${global_take_profit}' # Global unrealized PnL take-profit threshold.
+global_stop_loss: '${global_stop_loss}' # Global unrealized PnL stop-loss threshold.
+YAML
+
+  script_config_filename="$(pmm_mister_script_config_filename_for_controller "$config_id")"
+  script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
+
+  cat > "$script_config_path" <<YAML
+controllers_config:
+- ${controller_filename}
+script_file_name: v2_with_controllers.py
+max_global_drawdown_quote: null
+max_controller_drawdown_quote: null
+YAML
+
+  echo
+  echo "Config created: $controller_path"
+  echo "Script config created: $script_config_path"
+  echo "Quickstart: ./bin/hummingbot_quickstart.py -p a --v2 ${script_config_filename}"
+}
+
+create_pmm_v1_config() {
+  if [[ ! -d "$CONTROLLER_CONFIG_DIR" ]]; then
+    echo "Output directory '$CONTROLLER_CONFIG_DIR' not found."
+    exit 1
+  fi
+  mkdir -p "$SCRIPT_CONFIG_DIR"
+
+  echo "Create generic.pmm_v1 controller config"
+  echo "---------------------------------------"
+  echo "Note:"
+  echo "- Press Enter to accept the default value shown in [brackets]."
+  echo "- PMM V1 uses order_amount (BASE asset) for sizing. total_amount_quote is fixed to 0."
+  echo "- price_ceiling=-1 and price_floor=-1 mean disabled."
+  echo
+
+  date_prefix="$(date +%d%m%Y)"
+  read -r -p "Enter config name suffix (blank for auto): " user_suffix
+  user_suffix="$(trim "${user_suffix:-}")"
+
+  if [[ -z "$user_suffix" ]]; then
+    config_id="$(next_default_pmmv1_id "$date_prefix")"
+  else
+    user_suffix="$(sanitize_suffix "$user_suffix")"
+    if [[ -z "$user_suffix" ]]; then
+      echo "Invalid suffix. Use letters, numbers, _ or -."
+      exit 1
+    fi
+    config_id="${date_prefix}_${user_suffix}"
+  fi
+
+  controller_filename="${config_id}.yml"
+  controller_path="${CONTROLLER_CONFIG_DIR}/${controller_filename}"
+
+  if [[ -f "$controller_path" ]]; then
+    read -r -p "File already exists: $controller_path. Overwrite? (y/N): " overwrite
+    overwrite="$(trim "$overwrite")"
+    if [[ "${overwrite,,}" != "y" && "${overwrite,,}" != "yes" ]]; then
+      echo "Aborted."
+      exit 1
+    fi
+  fi
+
+  connector_name="$(prompt_default "connector_name" "kucoin")"
+  trading_pair="$(prompt_default "trading_pair" "SOL-USDT")"
+  base_asset="${trading_pair%%-*}"
+  order_amount="$(prompt_default "order_amount in BASE asset (e.g., 0.057 ${base_asset})" "0.057")"
+  buy_spreads_csv="$(prompt_default "buy_spreads (comma-separated decimals)" "0.01")"
+  sell_spreads_csv="$(prompt_default "sell_spreads (comma-separated decimals)" "0.01")"
+  order_refresh_time="$(prompt_int "order_refresh_time (seconds)" "30")"
+  inventory_skew_enabled="$(prompt_bool "inventory_skew_enabled" "false")"
+  if [[ "$inventory_skew_enabled" == "true" ]]; then
+    target_base_pct="$(prompt_default "target_base_pct" "0.5")"
+  else
+    target_base_pct="0.5"
+  fi
+
+  # Defaults/no-prompt values
+  total_amount_quote="0"
+  manual_kill_switch="false"
+  order_refresh_tolerance_pct="-1"
+  filled_order_delay="60"
+  inventory_range_multiplier="1.0"
+  price_ceiling="-1"
+  price_floor="-1"
+
+  buy_spreads_yaml="$(csv_to_yaml_float_list "$buy_spreads_csv")"
+  sell_spreads_yaml="$(csv_to_yaml_float_list "$sell_spreads_csv")"
+
+  cat > "$controller_path" <<YAML
+id: ${config_id}
+controller_name: pmm_v1
+controller_type: generic
+total_amount_quote: '${total_amount_quote}' # Fixed to 0 for PMM V1; strategy uses order_amount instead.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
+initial_positions: [] # Starts without seeded positions.
+connector_name: ${connector_name}
+trading_pair: ${trading_pair}
+order_amount: '${order_amount}' # Base asset size per order (e.g., ${order_amount} ${base_asset}).
+buy_spreads:
+${buy_spreads_yaml}
+sell_spreads:
+${sell_spreads_yaml}
+order_refresh_time: ${order_refresh_time}
+order_refresh_tolerance_pct: '${order_refresh_tolerance_pct}' # -1 disables tolerance check (refresh by time logic).
+filled_order_delay: ${filled_order_delay} # Wait after a fill before placing a new order at that level.
+inventory_skew_enabled: ${inventory_skew_enabled}
+target_base_pct: '${target_base_pct}'
+inventory_range_multiplier: '${inventory_range_multiplier}' # Skew range multiplier; default 1.0.
+price_ceiling: '${price_ceiling}' # Disabled at -1. If set, bot avoids BUY orders when price is at/above this level.
+price_floor: '${price_floor}' # Disabled at -1. If set, bot avoids SELL orders when price is at/below this level.
+YAML
+
+  script_config_filename="$(pmm_v1_script_config_filename_for_controller "$config_id")"
   script_config_path="${SCRIPT_CONFIG_DIR}/${script_config_filename}"
 
   cat > "$script_config_path" <<YAML
@@ -565,7 +891,7 @@ prompt_int_choice() {
 
 prompt_min_order_amount_quote() {
   local value
-  read -r -p "min_order_amount_quote (3 to 12 USD) [12]: " value
+  read -r -p "min_order_amount_quote (6 to 12 USD) [12]: " value
   value="$(trim "$value")"
   [[ -z "$value" ]] && value="12"
   if [[ ! "$value" =~ ^([0-9]+([.][0-9]+)?)$ ]]; then
@@ -573,9 +899,9 @@ prompt_min_order_amount_quote() {
     echo "Error: min_order_amount_quote must be a numeric value in USD." >&2
     exit 1
   fi
-  if ! awk -v n="$value" 'BEGIN { exit !(n >= 3 && n <= 12) }'; then
+  if ! awk -v n="$value" 'BEGIN { exit !(n >= 6 && n <= 12) }'; then
     echo >&2
-    echo "Error: order amount must be within the range of 3 to 12 USD (you entered: $value)." >&2
+    echo "Error: order amount must be within the strict range of 6 to 12 USD (you entered: $value)." >&2
     exit 1
   fi
   printf '%s' "$value"
@@ -651,7 +977,12 @@ create_grid_strike_config() {
 
   echo "Create generic.grid_strike controller config"
   echo "-------------------------------------------"
-  echo "Note: Press Enter to accept the default value shown in [brackets]."
+  echo "Note:"
+  echo "- Press Enter to accept the default value shown in [brackets]."
+  echo "- Default total_amount_quote is 100, and min_order_amount_quote is strictly 6 to 12 USD."
+  echo "- end_price is auto-calculated from start_price using +2% range distance."
+  echo "- limit_price is auto-calculated from start_price/end_price using 0.5% offset."
+  echo "- If side=1 (BUY), keep funds in QUOTE asset. If side=2 (SELL), keep funds in BASE asset."
   echo
 
   date_prefix="$(date +%d%m%Y)"
@@ -714,10 +1045,10 @@ create_grid_strike_config() {
 id: ${config_id}
 controller_name: grid_strike
 controller_type: generic
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
-leverage: ${leverage}
+leverage: ${leverage} # Leverage used for this strategy.
 position_mode: ${position_mode}
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
@@ -725,22 +1056,22 @@ side: ${side}
 start_price: '${start_price}'
 end_price: '${end_price}'
 limit_price: '${limit_price}'
-min_spread_between_orders: '${min_spread_between_orders}'
+min_spread_between_orders: '${min_spread_between_orders}' # Minimum spacing between grid orders.
 min_order_amount_quote: '${min_order_amount_quote}'
-max_open_orders: ${max_open_orders}
-max_orders_per_batch: ${max_orders_per_batch}
+max_open_orders: ${max_open_orders} # Max concurrent open orders.
+max_orders_per_batch: ${max_orders_per_batch} # Max new orders placed per cycle.
 order_frequency: ${order_frequency}
-activation_bounds: ${activation_bounds}
-keep_position: ${keep_position}
+activation_bounds: ${activation_bounds} # Price band where grid is allowed to place orders.
+keep_position: ${keep_position} # On stop: false=close position, true=keep position.
 triple_barrier_config:
-  open_order_type: 3
-  stop_loss: null
-  stop_loss_order_type: 1
-  take_profit: '${take_profit}'
-  take_profit_order_type: ${take_profit_order_type}
-  time_limit: null
-  time_limit_order_type: 1
-  trailing_stop: null
+  open_order_type: 3 # Entry order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  stop_loss: null # Disabled; risk is controlled by limit_price boundary.
+  stop_loss_order_type: 1 # Stop-loss order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  take_profit: '${take_profit}' # Per-grid take-profit target.
+  take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  time_limit: null # No time-based forced exit in this template.
+  time_limit_order_type: 1 # Time-limit exit order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  trailing_stop: null # Trailing stop disabled in this template.
 YAML
 
   script_config_filename="$(gridstrike_script_config_filename_for_controller "$config_id")"
@@ -766,6 +1097,8 @@ echo "1. market_making.pmm"
 echo "2. generic.grid_strike"
 echo "3. market_making.pmm_dynamic"
 echo "4. directional.bollinger_v1"
+echo "5. generic.pmm_mister"
+echo "6. generic.pmm_v1"
 echo
 read -r -p "Enter your choice: " choice
 
@@ -785,6 +1118,14 @@ case "$choice" in
   4)
     echo
     create_bollinger_v1_config
+    ;;
+  5)
+    echo
+    create_pmm_mister_config
+    ;;
+  6)
+    echo
+    create_pmm_v1_config
     ;;
   *)
     echo "Invalid choice. Exiting." >&2
