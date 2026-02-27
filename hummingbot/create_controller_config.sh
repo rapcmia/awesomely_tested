@@ -1093,19 +1093,19 @@ YAML
 
 echo "Select controller to create:"
 echo
-echo "1. market_making.pmm"
+echo "1. directional.bollinger_v1"
 echo "2. generic.grid_strike"
-echo "3. market_making.pmm_dynamic"
-echo "4. directional.bollinger_v1"
-echo "5. generic.pmm_mister"
-echo "6. generic.pmm_v1"
+echo "3. generic.pmm_mister"
+echo "4. generic.pmm_v1"
+echo "5. market_making.pmm"
+echo "6. market_making.pmm_dynamic"
 echo
 read -r -p "Enter your choice: " choice
 
 case "$choice" in
   1)
     echo
-    create_pmm_simple_config
+    create_bollinger_v1_config
     ;;
   2)
     echo
@@ -1113,19 +1113,19 @@ case "$choice" in
     ;;
   3)
     echo
-    create_pmm_dynamic_config
+    create_pmm_mister_config
     ;;
   4)
     echo
-    create_bollinger_v1_config
+    create_pmm_v1_config
     ;;
   5)
     echo
-    create_pmm_mister_config
+    create_pmm_simple_config
     ;;
   6)
     echo
-    create_pmm_v1_config
+    create_pmm_dynamic_config
     ;;
   *)
     echo "Invalid choice. Exiting." >&2
