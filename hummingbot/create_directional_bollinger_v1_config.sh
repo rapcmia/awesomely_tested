@@ -148,24 +148,24 @@ id: ${config_id}
 controller_name: bollinger_v1
 controller_type: directional_trading
 total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
-max_executors_per_side: ${max_executors_per_side}
+max_executors_per_side: ${max_executors_per_side} # Max simultaneous positions per direction.
 cooldown_time: ${cooldown_time}
-leverage: ${leverage}
-position_mode: ${position_mode}
-stop_loss: '${stop_loss}'
+leverage: ${leverage} # Leverage used for this strategy.
+position_mode: ${position_mode} # Position mode fixed by this template.
+stop_loss: '${stop_loss}' # Stop-loss per position.
 take_profit: '${take_profit}'
-time_limit: ${time_limit}
-take_profit_order_type: ${take_profit_order_type}
-trailing_stop: ${trailing_stop}
-candles_connector: ${candles_connector}
-candles_trading_pair: ${candles_trading_pair}
-interval: ${interval}
-bb_length: ${bb_length}
-bb_std: ${bb_std}
+time_limit: ${time_limit} # Max position lifetime in seconds.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+trailing_stop: ${trailing_stop} # Trailing stop disabled in this template.
+candles_connector: ${candles_connector} # Candle source connector (matches trade connector).
+candles_trading_pair: ${candles_trading_pair} # Candle source pair (matches trading pair).
+interval: ${interval} # Candle timeframe used by Bollinger Bands.
+bb_length: ${bb_length} # Number of candles used in Bollinger calculation.
+bb_std: ${bb_std} # Band width multiplier (higher = wider bands).
 bb_long_threshold: ${bb_long_threshold}
 bb_short_threshold: ${bb_short_threshold}
 YAML
