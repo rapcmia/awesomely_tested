@@ -78,7 +78,7 @@ prompt_int_choice() {
 
 prompt_min_order_amount_quote() {
   local value
-  read -r -p "min_order_amount_quote (3 to 12 USD) [12]: " value
+  read -r -p "min_order_amount_quote (6 to 12 USD) [12]: " value
   value="$(trim "$value")"
   [[ -z "$value" ]] && value="12"
 
@@ -88,9 +88,9 @@ prompt_min_order_amount_quote() {
     exit 1
   fi
 
-  if ! awk -v n="$value" 'BEGIN { exit !(n >= 3 && n <= 12) }'; then
+  if ! awk -v n="$value" 'BEGIN { exit !(n >= 6 && n <= 12) }'; then
     echo >&2
-    echo "Error: order amount must be within the range of 3 to 12 USD (you entered: $value)." >&2
+    echo "Error: order amount must be within the strict range of 6 to 12 USD (you entered: $value)." >&2
     exit 1
   fi
 
@@ -167,7 +167,12 @@ create_grid_strike_config() {
 
   echo "Create generic.grid_strike controller config"
   echo "-------------------------------------------"
-  echo "Note: Press Enter to accept the default value shown in [brackets]."
+  echo "Note:"
+  echo "- Press Enter to accept the default value shown in [brackets]."
+  echo "- Default total_amount_quote is 100, and min_order_amount_quote is strictly 6 to 12 USD."
+  echo "- end_price is auto-calculated from start_price using +2% range distance."
+  echo "- limit_price is auto-calculated from start_price/end_price using 0.5% offset."
+  echo "- If side=1 (BUY), keep funds in QUOTE asset. If side=2 (SELL), keep funds in BASE asset."
   echo
 
   date_prefix="$(date +%d%m%Y)"
@@ -230,10 +235,10 @@ create_grid_strike_config() {
 id: ${config_id}
 controller_name: grid_strike
 controller_type: generic
-total_amount_quote: '${total_amount_quote}'
-manual_kill_switch: ${manual_kill_switch}
+total_amount_quote: '${total_amount_quote}' # Total strategy budget in quote currency.
+manual_kill_switch: ${manual_kill_switch} # Emergency global stop switch.
 initial_positions: []
-leverage: ${leverage}
+leverage: ${leverage} # Leverage used for this strategy.
 position_mode: ${position_mode}
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
@@ -241,22 +246,22 @@ side: ${side}
 start_price: '${start_price}'
 end_price: '${end_price}'
 limit_price: '${limit_price}'
-min_spread_between_orders: '${min_spread_between_orders}'
+min_spread_between_orders: '${min_spread_between_orders}' # Minimum spacing between grid orders.
 min_order_amount_quote: '${min_order_amount_quote}'
-max_open_orders: ${max_open_orders}
-max_orders_per_batch: ${max_orders_per_batch}
+max_open_orders: ${max_open_orders} # Max concurrent open orders.
+max_orders_per_batch: ${max_orders_per_batch} # Max new orders placed per cycle.
 order_frequency: ${order_frequency}
-activation_bounds: ${activation_bounds}
-keep_position: ${keep_position}
+activation_bounds: ${activation_bounds} # Price band where grid is allowed to place orders.
+keep_position: ${keep_position} # On stop: false=close position, true=keep position.
 triple_barrier_config:
-  open_order_type: 3
-  stop_loss: null
-  stop_loss_order_type: 1
-  take_profit: '${take_profit}'
-  take_profit_order_type: ${take_profit_order_type}
-  time_limit: null
-  time_limit_order_type: 1
-  trailing_stop: null
+  open_order_type: 3 # Entry order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  stop_loss: null # Disabled; risk is controlled by limit_price boundary.
+  stop_loss_order_type: 1 # Stop-loss order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  take_profit: '${take_profit}' # Per-grid take-profit target.
+  take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  time_limit: null # No time-based forced exit in this template.
+  time_limit_order_type: 1 # Time-limit exit order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+  trailing_stop: null # Trailing stop disabled in this template.
 YAML
 
   script_config_filename="$(gridstrike_script_config_filename_for_controller "$config_id")"
