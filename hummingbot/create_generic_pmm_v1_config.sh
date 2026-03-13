@@ -162,8 +162,8 @@ connector_name="$(prompt_default "connector_name" "kucoin")"
 trading_pair="$(prompt_default "trading_pair" "SOL-USDT")"
 base_asset="${trading_pair%%-*}"
 order_amount="$(prompt_default "order_amount in BASE asset (e.g., 0.057 ${base_asset})" "0.057")"
-buy_spreads_csv="$(prompt_default "buy_spreads (comma-separated decimals)" "0.01")"
-sell_spreads_csv="$(prompt_default "sell_spreads (comma-separated decimals)" "0.01")"
+buy_spreads_csv="$(prompt_default "buy_spreads (comma-separated decimals, 0.01 = 1%)" "0.01")"
+sell_spreads_csv="$(prompt_default "sell_spreads (comma-separated decimals, 0.01 = 1%)" "0.01")"
 order_refresh_time="$(prompt_int "order_refresh_time (seconds)" "30")"
 inventory_skew_enabled="$(prompt_bool "inventory_skew_enabled" "false")"
 if [[ "$inventory_skew_enabled" == "true" ]]; then
@@ -194,9 +194,9 @@ initial_positions: [] # Starts without seeded positions.
 connector_name: ${connector_name}
 trading_pair: ${trading_pair}
 order_amount: '${order_amount}' # Base asset size per order (e.g., ${order_amount} ${base_asset}).
-buy_spreads:
+buy_spreads: # Decimal percentages for buy orders; 0.01 means 1% away from mid price.
 ${buy_spreads_yaml}
-sell_spreads:
+sell_spreads: # Decimal percentages for sell orders; 0.01 means 1% away from mid price.
 ${sell_spreads_yaml}
 order_refresh_time: ${order_refresh_time}
 order_refresh_tolerance_pct: '${order_refresh_tolerance_pct}' # -1 disables tolerance check (refresh by time logic).
