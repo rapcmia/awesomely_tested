@@ -1,3 +1,6 @@
+
+clear 
+
 ALLOWED_REPO=("hummingbot" "hummingbot-api" "gateway" "condor")
 
 # get the directory and trim the dirname/basename e.g hummingbot/<root base folder>
@@ -55,7 +58,8 @@ build_docker() {
   echo ""
 
   # build docker here
-  echo "##### BUILDING DOCKER IMAGE 🐳 #####"
+  echo "🐳 BUILDING DOCKER IMAGE"
+  echo ""
   if docker build -t hummingbot/$GET_DIRNAME:$GET_BASENAME -f Dockerfile . --no-cache 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
     🎉 docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$ "
