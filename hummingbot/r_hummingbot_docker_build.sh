@@ -1,6 +1,3 @@
-
-clear 
-
 ALLOWED_REPO=("hummingbot" "hummingbot-api" "gateway" "condor")
 
 # get the directory and trim the dirname/basename e.g hummingbot/<root base folder>
@@ -58,13 +55,13 @@ build_docker() {
   echo ""
 
   # build docker here
-  echo "##### BUILDING DOCKER IMAGE #####"
+  echo "##### BUILDING DOCKER IMAGE 🐳 #####"
   if docker build -t hummingbot/$GET_DIRNAME:$GET_BASENAME -f Dockerfile . --no-cache 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
-    docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$"
+    🎉 docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$ "
   else
     echo ""
-    echo "Docker failed please check "
+    echo "Docker failed please check ❌"
     realpath "$LOG_FILE"
   fi
 }
@@ -77,9 +74,12 @@ for X in "${ALLOWED_REPO[@]}"; do
 done
 
 if [[ "$DIRNAME_VALID" == true ]]; then 
-  echo " it has the valid repo, $GET_DIRNAME/$GET_BASENAME"
+  echo -n "Validating."; sleep 0.5
+  echo -n "."; sleep 0.5
+  echo -n "."; sleep 0.5
+  echo " $GET_DIRNAME/$GET_BASENAME ✅"
 else
-  echo "Not a valid repo, $GET_DIRNAME/$GET_BASENAME"
+  echo "Not a valid repo, $GET_DIRNAME/$GET_BASENAME ❌"
   echo ""
   prompt_repo
 fi
