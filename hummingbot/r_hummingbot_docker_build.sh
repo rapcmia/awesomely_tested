@@ -22,7 +22,7 @@ prompt_repo() {
   echo -n "Fetching git remote url."; sleep 1;
   echo -n "."; sleep 1;
   echo -n "."; sleep 1;
-  echo " found $Y"
+  echo " found $Y ✅"
 
   for X in "${ALLOWED_REPO[@]}"; do
     if [[ "$X" == "$Y" ]]; then
@@ -34,7 +34,7 @@ prompt_repo() {
   if [[ "$Z" == true ]]; then
     GET_DIRNAME="$Y"
   else
-    echo "$Y is not a valid repo, please check https://github.com/hummingbot"
+    echo "$Y is not a valid repo, please check https://github.com/hummingbot ❌"
     exit 1
   fi
 
@@ -61,7 +61,7 @@ build_docker() {
   echo ""
   if docker build -t hummingbot/$GET_DIRNAME:$GET_BASENAME -f Dockerfile . --no-cache 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
-    🎉 docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$ "
+    echo "🎉 $(docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$")"
   else
     echo ""
     echo "Docker failed please check ❌"
@@ -87,6 +87,6 @@ else
   prompt_repo
 fi
 
-echo -n "This setup will build docker hummingbot/$GET_DIRNAME:$GET_BASENAME";
+echo -n "This setup will build docker hummingbot/$GET_DIRNAME:$GET_BASENAME"; sleep 1.5
 echo ""
 build_docker
