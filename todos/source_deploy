@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# Name of the tmux session
+SESSION_NAME="source deploy"
+
+# Start a new tmux session
+tmux new-session -d -s $SESSION_NAME
+
+# Pane 1: Navigate to directory and start Uvicorn
+tmux send-keys -t $SESSION_NAME "cd ~/hummingbot/backend-api/main" C-m
+tmux send-keys -t $SESSION_NAME "conda activate backend-api && make run" C-m
+
+# Split vertically for Pane 2
+tmux split-window -h
+tmux send-keys -t $SESSION_NAME "cd ~/hummingbot/dashboard/main" C-m
+tmux send-keys -t $SESSION_NAME "conda activate dashboard && make run" C-m
+
+# Split horizontally for Pane 3
+tmux split-window -v
+tmux send-keys -t $SESSION_NAME "cd ~/hummingbot/deploy/main" C-m
+tmux send-keys -t $SESSION_NAME "docker compose up emqx" C-m
+
+# Attach to the session
+tmux attach-session -t $SESSION_NAME
