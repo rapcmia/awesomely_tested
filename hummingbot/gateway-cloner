@@ -1,0 +1,124 @@
+#!/bin/bash
+
+: <<'EOF'
+Ralph: Created to make it easier to clone pull requests when testing https://github.com.hummingbot/hummingbot
+EOF
+
+# clear
+# banner
+echo
+echo
+echo "===============  HUMMINGBOT GATEWAY CLONER v1.0 ==============="
+echo
+echo
+echo "ℹ️  Press [ENTER] for default values:"
+echo
+echo
+
+# prompt if which repository? hummingbot by default
+read -p "Enter the profile of repository to clone (default: gateway) >> " github_repo
+
+# prompt which branch should be use? development if from hummingbot by default 
+read -p "Enter branch name to checkout(default: development) >> " github_branch
+
+# prompt folder name to save pull request 
+read -p "Enter folder name (default: hummingbot) >> " github_folder
+
+
+# input validation
+if [[ $github_repo == "" ]]
+then 
+    github_repo="https://github.com/hummingbot/gateway"
+else
+    github_repo="https://github.com/$github_repo/gateway"
+fi
+
+if [[ $github_branch == "" ]]
+then
+    github_branch="development"
+fi
+
+look_for_dir (){
+    # this function look for directory first and creates the folder if available
+    if [[ $github_folder == "" ]]
+    then 
+        x=0 ; folder_exist=false
+        while [ $folder_exist == false ]
+            do 
+                if [ $x == 0 ]; then
+                    github_folder="gateway"
+                else
+                    github_folder="gateway($x)"
+                fi
+
+                if [ -d "$PWD/$github_folder" ]; then 
+                    x=$((x + 1)) # increments the default folder
+                else
+                    folder_exist=true
+                fi
+        done 
+    fi
+}; look_for_dir
+
+clear_waiting_time (){
+    # Nothing fancy, just adding 'done' text
+
+    sleep 0.02
+    echo -e " done!"
+};
+
+echo 
+echo "Repository: $github_repo"
+echo "Checkout branch: $github_branch"
+echo "Directory: $PWD/$github_folder"
+
+read -p "Proceed? (default: yes) >> " github_next
+echo
+
+exit_setup_when_error (){
+    # exit setup and returns suggestion to user to check $error_log file 
+    if [ $? -ne 0 ]; then
+        if [ -d "$PWD/$github_folder" ]; then 
+            d="../$error_log"
+        else
+            d=$error_log
+        fi
+        echo -e "$(date +'%Y-%m-%d %H:%M:%S'): $check_error \n)" >> $d
+        echo
+        echo
+        echo
+        echo "⚠️  Error found, please check '$error_log' for more info"
+        echo 
+        echo 
+        exit 
+    fi
+}
+
+proceed_installation (){
+    # this function installs the hummingbot program
+
+    # create and write error log file 
+    error_log=logs_${github_folder}.log 
+
+    # clone and download repository and move to folder
+    echo -ne "Cloning GitHub files to '$github_folder', downloading.."
+    check_error=$(git clone -b $github_branch $github_repo $github_folder 2>&1)
+    exit_setup_when_error
+    cd $github_folder && clear_waiting_time
+
+    #todo:
+        # yarn 
+        # yarn build
+        # gateway_setup.sh
+        # gateway start
+
+}
+
+if [[ $github_next == "Yes" ]] || [[ $github_next == "y" ]] || [[ $github_next == "Y" ]] || [[ $github_next == "yes" ]] || [[ $github_next == "" ]]; then 
+    proceed_installation
+else
+    echo
+    echo "Exiting setup since invalid answer! try again later"
+    echo 
+    exit 1
+fi
