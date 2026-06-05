@@ -82,6 +82,23 @@ prompt_position_mode() {
   done
 }
 
+prompt_position_side() {
+  local value
+  while true; do
+    value="$(prompt_default "position_side (BUY/LONG/SELL/SHORT)" "BUY")"
+    value="${value^^}"
+    case "$value" in
+      BUY|LONG|SELL|SHORT)
+        printf '%s' "$value"
+        return
+        ;;
+      *)
+        echo "Please enter BUY, LONG, SELL, or SHORT."
+        ;;
+    esac
+  done
+}
+
 sanitize_suffix() {
   local raw="$1"
   local cleaned
@@ -162,38 +179,44 @@ fi
 
 # Prompted fields (non-# in baseline)
 total_amount_quote="$(prompt_default "total_amount_quote" "50")"
-connector_name="$(prompt_default "connector_name" "kucoin")"
-trading_pair="$(prompt_default "trading_pair" "SOL-USDT")"
-portfolio_allocation="0.5"
+connector_name="$(prompt_default "connector_name" "binance")"
+trading_pair="$(prompt_default "trading_pair" "BTC-USDT")"
+portfolio_allocation="0.1"
 target_base_pct="0.5"
 buy_spreads="$(prompt_default "buy_spreads" "0.0005")"
 sell_spreads="$(prompt_default "sell_spreads" "0.0005")"
 buy_amounts_pct="1"
 sell_amounts_pct="1"
-executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "60")"
+executor_refresh_time="$(prompt_int "executor_refresh_time (seconds)" "30")"
 position_mode="$(prompt_position_mode)"
-position_profit_protection="$(prompt_bool "position_profit_protection" "true")"
+position_side="$(prompt_position_side)"
+position_profit_protection="$(prompt_bool "position_profit_protection" "false")"
 
 # Defaults from baseline entries marked with '#'
 manual_kill_switch="false"
 min_base_pct="0.3"
-max_base_pct="0.6"
+max_base_pct="0.7"
 buy_position_effectivization_time="120"
 sell_position_effectivization_time="120"
-buy_cooldown_time="30"
-sell_cooldown_time="30"
+buy_cooldown_time="60"
+sell_cooldown_time="60"
 price_distance_tolerance="0.0005"
 refresh_tolerance="0.0005"
 tolerance_scaling="1.2"
-leverage="10"
-take_profit="0.0003"
-take_profit_order_type="MARKET"
-open_order_type="LIMIT"
-max_active_executors_by_level="2"
+leverage="20"
+take_profit="0.0001"
+take_profit_order_type="3"
+open_order_type="3"
+max_active_executors_by_level="4"
 tick_mode="false"
 min_skew="1.0"
-global_take_profit="0.01"
-global_stop_loss="0.01"
+global_take_profit="0.03"
+global_stop_loss="0.05"
+global_tp_enabled="false"
+global_sl_enabled="false"
+global_tp_activation_from="min_base"
+global_sl_activation_from="target_base"
+global_pnl_reference="position"
 
 cat > "$controller_path" <<YAML
 id: ${config_id}
@@ -222,15 +245,21 @@ refresh_tolerance: '${refresh_tolerance}' # Max drift from target-entry before r
 tolerance_scaling: '${tolerance_scaling}' # Multiplier to make deeper levels less strict.
 leverage: ${leverage} # Fixed leverage used by this config template.
 position_mode: ${position_mode}
+position_side: ${position_side}
 take_profit: '${take_profit}' # Per-position take profit target.
-take_profit_order_type: ${take_profit_order_type} # TP order type. Options: MARKET, LIMIT, LIMIT_MAKER.
-open_order_type: ${open_order_type} # Entry order type. Options: MARKET, LIMIT, LIMIT_MAKER.
+take_profit_order_type: ${take_profit_order_type} # TP order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
+open_order_type: ${open_order_type} # Entry order type. Options: 1=MARKET, 2=LIMIT, 3=LIMIT_MAKER.
 max_active_executors_by_level: ${max_active_executors_by_level} # Safety cap for concurrent executors per level.
 tick_mode: ${tick_mode} # False = use spread percentages directly (not tick-size mode).
 position_profit_protection: ${position_profit_protection}
 min_skew: '${min_skew}' # Minimum order-size skew factor (prevents very tiny orders).
 global_take_profit: '${global_take_profit}' # Global unrealized PnL take-profit threshold.
 global_stop_loss: '${global_stop_loss}' # Global unrealized PnL stop-loss threshold.
+global_tp_enabled: ${global_tp_enabled}
+global_sl_enabled: ${global_sl_enabled}
+global_tp_activation_from: ${global_tp_activation_from}
+global_sl_activation_from: ${global_sl_activation_from}
+global_pnl_reference: ${global_pnl_reference}
 YAML
 
 script_config_filename="$(script_config_filename_for_controller "$config_id")"
