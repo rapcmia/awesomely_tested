@@ -27,6 +27,18 @@ usd_value() {
   }'
 }
 
+clamp_to_max_pct() {
+  local value="$1"
+  local max="$2"
+  awk -v value="$value" -v max="$max" 'BEGIN {
+    if (value > max) {
+      printf "%.10f", max
+    } else {
+      printf "%.10f", value
+    }
+  }'
+}
+
 is_numeric() {
   [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]
 }
@@ -143,11 +155,11 @@ portfolio_allocation_raw="$(
 )"
 portfolio_allocation="$(normalize_decimal "$portfolio_allocation_raw")"
 min_base_pct_raw="$(
-  awk -v portfolio="$portfolio_allocation_raw" 'BEGIN { printf "%.10f", portfolio * 2 }'
+  awk -v order="$order_amount" -v total="$total_amount" 'BEGIN { printf "%.10f", order / total }'
 )"
 min_base_pct="$(normalize_decimal "$min_base_pct_raw")"
 target_base_pct_raw="$(
-  awk -v min_base="$min_base_pct_raw" 'BEGIN { printf "%.10f", min_base * 3 }'
+  awk -v min_base="$min_base_pct_raw" 'BEGIN { printf "%.10f", min_base * 2 }'
 )"
 target_base_pct="$(normalize_decimal "$target_base_pct_raw")"
 max_base_pct_raw="$(
@@ -169,7 +181,7 @@ echo "+----------------------+------------+------------+"
 echo
 echo "- Using ${number_of_orders} orders at ${order_amount} USD each: ${used_amount} allocated from ${total_amount} USD."
 echo "- portfolio_allocation: total amount allocated for the ${number_of_orders} orders."
-echo "- min_base_pct: 2x portfolio_allocation."
-echo "- target_base_pct: 3x min_base_pct."
+echo "- min_base_pct: based on the order amount as a share of the total amount."
+echo "- target_base_pct: 2x min_base_pct."
 echo "- max_base_pct: fixed at 70% of the total amount."
 echo
