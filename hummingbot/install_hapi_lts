@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+REPO_URL="${HAPI_REPO_URL:-https://github.com/hummingbot/hummingbot-api.git}"
+PREFIX="${HAPI_LTS_PREFIX:-lts}"
+
+usage() {
+  echo "Usage: $0 <pr-or-suffix>"
+  echo
+  echo "Example:"
+  echo "  $0 8282"
+  echo
+  echo "Creates:"
+  echo "  ${PREFIX}_8282"
+}
+
+if [[ $# -ne 1 ]]; then
+  usage >&2
+  exit 1
+fi
+
+SUFFIX="$1"
+
+if [[ -z "$SUFFIX" || "$SUFFIX" == -* || "$SUFFIX" == */* ]]; then
+  echo "Invalid suffix: $SUFFIX" >&2
+  echo "Use a simple value like: 8282" >&2
+  exit 1
+fi
+
+TARGET_DIR="${PREFIX}_${SUFFIX}"
+
+if [[ -e "$TARGET_DIR" ]]; then
+  echo "Target already exists: $TARGET_DIR" >&2
+  exit 1
+fi
+
+echo "Cloning $REPO_URL into $TARGET_DIR..."
+git clone "$REPO_URL" "$TARGET_DIR"
+
+echo
+echo "Done: $TARGET_DIR"
