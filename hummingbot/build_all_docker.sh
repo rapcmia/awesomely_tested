@@ -40,6 +40,61 @@ prompt_repo() {
 
 }
 
+update_docker_compose_image() {
+  local local_image current_image confirm updated_line
+
+  if [[ ! -f "docker-compose.yml" ]]; then
+    echo "No docker-compose.yml found in $PWD. Skipping compose image update."
+    return 0
+  fi
+
+  local_image="hummingbot/$GET_DIRNAME:$GET_BASENAME"
+  current_image="$(sed -nE 's/^[[:space:]]*image:[[:space:]]*(.+)$/\1/p' docker-compose.yml | head -n 1)"
+
+  if [[ -z "$current_image" ]]; then
+    echo "No image entry found in docker-compose.yml. Skipping compose image update."
+    return 0
+  fi
+
+  updated_line="$(grep -n -m 1 '^[[:space:]]*image:' docker-compose.yml)"
+  if [[ "$current_image" == "$local_image" ]]; then
+    echo "docker-compose.yml image was already updated ✅"
+    echo "$updated_line"
+    return 0
+  fi
+
+  echo ""
+  read -r -p "Update docker-compose.yml image ($current_image to $local_image) Y/n >> " confirm
+  if [[ -z "$confirm" || "$confirm" =~ ^[Yy]$ ]]; then
+    python3 - "$local_image" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+compose_file = Path("docker-compose.yml")
+local_image = sys.argv[1]
+compose_text = compose_file.read_text()
+updated_text, count = re.subn(
+    r"(^\s*image:\s*).*$",
+    rf"\g<1>{local_image}",
+    compose_text,
+    count=1,
+    flags=re.MULTILINE,
+)
+
+if count == 0:
+    raise SystemExit(1)
+
+compose_file.write_text(updated_text)
+PY
+    updated_line="$(grep -n -m 1 '^[[:space:]]*image:' docker-compose.yml)"
+    echo "docker-compose.yml image was updated."
+    echo "$updated_line"
+  else
+    echo "docker-compose.yml image was not updated."
+  fi
+}
+
 build_docker() {
   local DATE_STAMP LOG_FILE COUNT
 
@@ -62,6 +117,8 @@ build_docker() {
   if docker build -t hummingbot/$GET_DIRNAME:$GET_BASENAME -f Dockerfile . --no-cache 2>&1 | tee -a "$LOG_FILE"; then
     echo ""
     echo "🎉 $(docker images --format '{{.Repository}}:{{.Tag}}' | grep "^hummingbot/$GET_DIRNAME:$GET_BASENAME$")"
+    echo ""
+    update_docker_compose_image
   else
     echo ""
     echo "Docker failed please check ❌"
@@ -77,6 +134,7 @@ for X in "${ALLOWED_REPO[@]}"; do
 done
 
 if [[ "$DIRNAME_VALID" == true ]]; then 
+  echo ""
   echo -n "Validating."; sleep 0.5
   echo -n "."; sleep 0.5
   echo -n "."; sleep 0.5

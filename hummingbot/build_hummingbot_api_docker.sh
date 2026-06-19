@@ -29,7 +29,7 @@ TAG="$(basename "$ROOT")"
 LOG_FILE="$ROOT/$(date +%d%m%Y)_hummingbot-api_docker_build.log"
 cd "$ROOT"
 
-if [[ "$MODE" == "revert" ]]; then
+revert_to_default_setup() {
   python3 - "$ROOT" <<'PY'
 from pathlib import Path
 import re
@@ -77,7 +77,10 @@ elif not any(line.strip() == "- hummingbot" for line in env_lines):
 
 env_file.write_text("\n".join(env_lines) + "\n")
 PY
+}
 
+if [[ "$MODE" == "revert" ]]; then
+  revert_to_default_setup
   echo
   echo "Reverted to default setup"
   echo "- Dockerfile no longer contains COPY *.whl ."
@@ -207,8 +210,10 @@ if [[ "$ENV_UPDATED" == "YES" ]]; then
 fi
 
 if [[ "$CHECK_DOCKERFILE" != "OK" || "$CHECK_WHEEL_FILE" != "OK" || "$CHECK_ENV" != "OK" || "$CHECK_COMPOSE" != "OK" ]]; then
+  revert_to_default_setup
   echo
   echo "Build skipped because the checklist is not complete."
+  echo "Reverted prep changes back to the default setup."
   exit 1
 fi
 
